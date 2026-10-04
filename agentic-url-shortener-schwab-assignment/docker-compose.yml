@@ -1,0 +1,11 @@
+services:
+  url-shortener:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - url-data:/app/data
+    environment:
+      JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+volumes:
+  url-data:

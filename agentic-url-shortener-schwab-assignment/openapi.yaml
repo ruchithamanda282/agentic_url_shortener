@@ -1,0 +1,168 @@
+openapi: 3.0.3
+info:
+  title: Agentic URL Shortener API
+  version: 1.0.0
+  description: URL shortening, analytics and governed agentic SDLC orchestration prototype.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/urls:
+    post:
+      summary: Create a short URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ShortenRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShortenResponse'
+        '400': { description: Invalid request }
+  /r/{code}:
+    get:
+      summary: Redirect to original URL and increment click count
+      parameters:
+        - $ref: '#/components/parameters/code'
+      responses:
+        '302': { description: Redirect }
+        '404': { description: Code not found }
+  /api/urls/{code}/analytics:
+    get:
+      summary: Get URL analytics
+      parameters:
+        - $ref: '#/components/parameters/code'
+      responses:
+        '200':
+          description: Analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsResponse'
+  /api/workflows:
+    post:
+      summary: Start an agentic SDLC workflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowRequest'
+      responses:
+        '202':
+          description: Workflow created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowState'
+  /api/workflows/{workflowId}:
+    get:
+      summary: Get workflow state and audit lineage
+      parameters:
+        - $ref: '#/components/parameters/workflowId'
+      responses:
+        '200': { description: Workflow state }
+  /api/workflows/{workflowId}/approve:
+    post:
+      summary: Approve or reject a human gate
+      parameters:
+        - $ref: '#/components/parameters/workflowId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApprovalRequest'
+      responses:
+        '200': { description: Approval processed }
+  /api/workflows/{workflowId}/stop:
+    post:
+      summary: Safe-stop workflow
+      parameters:
+        - $ref: '#/components/parameters/workflowId'
+        - name: reason
+          in: query
+          schema: { type: string }
+      responses:
+        '200': { description: Workflow stopped }
+  /api/workflows/{workflowId}/replan:
+    post:
+      summary: Re-plan after upstream requirement change
+      parameters:
+        - $ref: '#/components/parameters/workflowId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requirement]
+              properties:
+                requirement: { type: string }
+      responses:
+        '200': { description: Downstream stages invalidated }
+  /api/metrics/{workflowId}:
+    get:
+      summary: Get reliability metrics
+      parameters:
+        - $ref: '#/components/parameters/workflowId'
+      responses:
+        '200': { description: Workflow reliability metrics }
+components:
+  parameters:
+    code:
+      name: code
+      in: path
+      required: true
+      schema: { type: string }
+    workflowId:
+      name: workflowId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+  schemas:
+    ShortenRequest:
+      type: object
+      required: [url]
+      properties:
+        url: { type: string, maxLength: 2048, example: https://example.com/path }
+        createdBy: { type: string, maxLength: 64 }
+    ShortenResponse:
+      type: object
+      properties:
+        code: { type: string }
+        shortUrl: { type: string }
+        originalUrl: { type: string }
+        createdAt: { type: string, format: date-time }
+    AnalyticsResponse:
+      type: object
+      properties:
+        code: { type: string }
+        originalUrl: { type: string }
+        clicks: { type: integer, format: int64 }
+        createdAt: { type: string, format: date-time }
+    WorkflowRequest:
+      type: object
+      required: [requirement]
+      properties:
+        scenario:
+          type: string
+          enum: [GREENFIELD, BROWNFIELD, AMBIGUOUS]
+        requirement: { type: string }
+        autoApprove: { type: boolean, default: false }
+    ApprovalRequest:
+      type: object
+      required: [stage, approved]
+      properties:
+        stage:
+          type: string
+          enum: [REQUIREMENTS, ARCHITECTURE, IMPLEMENTATION, TESTING, DOCUMENTATION, RELEASE]
+        approved: { type: boolean }
+        reason: { type: string }
+    WorkflowState:
+      type: object
+      description: Stateful workflow with stage states, context, approvals and audit trail.
