@@ -38,18 +38,11 @@ public class AgenticOrchestrator {
         state.audit("WORKFLOW_CREATED scenario=" + scenario);
         workflows.put(id, state);
         if (Boolean.TRUE.equals(request.autoApprove())) {
-            WorkflowState s = new WorkflowState(
-                    UUID.randomUUID().toString(),
-                    request.scenario(),
-                    request.requirement()
-            );
+            state.getApprovals().add(Stage.REQUIREMENTS);
+            state.getApprovals().add(Stage.IMPLEMENTATION);
+            state.getApprovals().add(Stage.RELEASE);
 
-            // Now s is available
-            s.getApprovals().add(Stage.REQUIREMENTS);
-            s.getApprovals().add(Stage.IMPLEMENTATION);
-            s.getApprovals().add(Stage.RELEASE);
-
-            s.audit("AUTO_APPROVAL_ENABLED demoMode=true");
+            state.audit("AUTO_APPROVAL_ENABLED demoMode=true");
             executor.submit(() -> run(id));
         } else {
             state.setStatus(WorkflowStatus.WAITING_APPROVAL);
