@@ -1,2 +1,2 @@
-/agentic-url-shortener-schwab-assignment/target/
-/agentic-url-shortener-schwab-assignment/data/*.lock.db
+/target/
+/data/*.lock.db

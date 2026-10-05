@@ -22,15 +22,29 @@ class AgenticOrchestratorTest {
         assertEquals(WorkflowStatus.WAITING_APPROVAL, s.getStatus());
     }
 
-    @Test void autoApprovedWorkflowCompletes() throws InterruptedException {
-        AgenticOrchestrator orchestrator = new AgenticOrchestrator();
-        WorkflowState state = orchestrator.create(new WorkflowRequest(
-                ScenarioType.GREENFIELD, "Create a URL shortener", true));
+    @Test void autoApproveRunsWorkflowToSucceeded() throws InterruptedException {
+        AgenticOrchestrator o = new AgenticOrchestrator();
+        WorkflowState created = o.create(new WorkflowRequest(ScenarioType.GREENFIELD, "Create a URL shortener", true));
+        String id = created.getWorkflowId();
 
-        awaitStatus(state, WorkflowStatus.SUCCEEDED);
+        // run() executes asynchronously; wait for terminal state
+        WorkflowState s = null;
+        long deadline = System.currentTimeMillis() + 10_000;
+        do {
+            Thread.sleep(100);
+            s = o.get(id);
+        } while (System.currentTimeMillis() < deadline
+                && s.getStatus() != WorkflowStatus.SUCCEEDED
+                && s.getStatus() != WorkflowStatus.SAFE_STOPPED);
 
-        assertTrue(state.getStages().values().stream()
-                .allMatch(stage -> stage.getStatus() == StageStatus.SUCCEEDED));
+        assertEquals(WorkflowStatus.SUCCEEDED, s.getStatus(),
+                "autoApprove=true must drive the workflow to SUCCEEDED without human gates");
+        for (Stage stage : Stage.values()) {
+            assertEquals(StageStatus.SUCCEEDED, s.getStages().get(stage).getStatus(),
+                    "stage " + stage + " should have succeeded");
+        }
+        assertTrue(s.getAudit().stream().anyMatch(e -> e.contains("AUTO_APPROVAL_ENABLED")),
+                "audit trail must record AUTO_APPROVAL_ENABLED on the executed workflow");
     }
 
     @Test void timedOutStageIsAuditedAndEventuallySafeStops() throws InterruptedException {
@@ -48,20 +62,16 @@ class AgenticOrchestratorTest {
         WorkflowState state = orchestrator.create(new WorkflowRequest(
                 ScenarioType.GREENFIELD, "Timeout test", true));
 
-        awaitStatus(state, WorkflowStatus.SAFE_STOPPED);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (state.getStatus() != WorkflowStatus.SAFE_STOPPED && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
 
+        assertEquals(WorkflowStatus.SAFE_STOPPED, state.getStatus());
         assertEquals(StageStatus.FAILED, state.getStages().get(Stage.REQUIREMENTS).getStatus());
         assertEquals(3, state.getStages().get(Stage.REQUIREMENTS).getAttempts());
         assertTrue(state.getAudit().stream().anyMatch(event -> event.contains(
                 "STAGE_TIMEOUT stage=REQUIREMENTS timeoutMs=1")));
-    }
-
-    private void awaitStatus(WorkflowState state, WorkflowStatus expected) throws InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-        while (state.getStatus() != expected && System.nanoTime() < deadline) {
-            Thread.sleep(10);
-        }
-        assertEquals(expected, state.getStatus());
     }
 
 }
