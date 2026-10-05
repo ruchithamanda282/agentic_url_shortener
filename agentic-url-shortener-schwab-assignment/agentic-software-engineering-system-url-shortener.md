@@ -55,6 +55,7 @@ This repository provides two related capabilities:
 - Synchronize at the release gate
 - Require human approval for high-impact stages
 - Enforce bounded retries
+- Apply a 30-second timeout to each stage and audit timed-out stages
 - Record rollback and safe-stop events
 - Support dynamic re-planning after upstream requirement changes
 - Preserve audit/decision lineage and reliability metrics
@@ -596,6 +597,7 @@ Stage starts
 ```
 
 The prototype fails closed: if orchestration cannot establish a safe state, it stops instead of continuing autonomously.
+Each stage has a 30-second execution timeout. A timed-out stage is cancelled, recorded in the audit trail, and handled by the same bounded retry policy as other stage failures.
 
 ---
 
@@ -667,7 +669,7 @@ A strong 8–12 minute interview demonstration can follow this sequence:
 |---|---|
 | Demo UI | `http://localhost:8080/` |
 | H2 Console | `http://localhost:8080/h2-console` |
-| Health endpoint | `http://localhost:8080/actuator/health` *(if Actuator is added)* |
+| Health endpoint | `http://localhost:8080/actuator/health` |
 
 ### H2 Console Connection
 

@@ -7,23 +7,25 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
-import java.util.ArrayList;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-
-import org.springframework.stereotype.Service;
 
 @Service
 public class AgenticOrchestrator {
     private static final int MAX_RETRIES = 2;
+    private static final Duration DEFAULT_STAGE_TIMEOUT = Duration.ofSeconds(30);
     private final Map<String, WorkflowState> workflows = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+    private final Duration stageTimeout;
+
+    public AgenticOrchestrator() {
+        this(DEFAULT_STAGE_TIMEOUT);
+    }
+
+    AgenticOrchestrator(Duration stageTimeout) {
+        this.stageTimeout = Objects.requireNonNull(stageTimeout);
+        if (stageTimeout.isZero() || stageTimeout.isNegative()) {
+            throw new IllegalArgumentException("Stage timeout must be positive");
+        }
+    }
 
     public WorkflowState create(WorkflowRequest request) {
         String id = UUID.randomUUID().toString();
@@ -38,18 +40,8 @@ public class AgenticOrchestrator {
         state.audit("WORKFLOW_CREATED scenario=" + scenario);
         workflows.put(id, state);
         if (Boolean.TRUE.equals(request.autoApprove())) {
-            WorkflowState s = new WorkflowState(
-                    UUID.randomUUID().toString(),
-                    request.scenario(),
-                    request.requirement()
-            );
-
-            // Now s is available
-            s.getApprovals().add(Stage.REQUIREMENTS);
-            s.getApprovals().add(Stage.IMPLEMENTATION);
-            s.getApprovals().add(Stage.RELEASE);
-
-            s.audit("AUTO_APPROVAL_ENABLED demoMode=true");
+            state.getApprovals().addAll(EnumSet.of(Stage.REQUIREMENTS, Stage.IMPLEMENTATION, Stage.RELEASE));
+            state.audit("AUTO_APPROVAL_ENABLED demoMode=true");
             executor.submit(() -> run(id));
         } else {
             state.setStatus(WorkflowStatus.WAITING_APPROVAL);
@@ -149,7 +141,23 @@ public class AgenticOrchestrator {
         st.setStatus(StageStatus.RUNNING); st.setStartedAt(Instant.now()); st.setAttempts(st.getAttempts() + 1);
         s.audit("STAGE_STARTED " + stage + " attempt=" + st.getAttempts());
         try {
-            String output = generate(stage, s);
+            Future<String> future = executor.submit(() -> generate(stage, s));
+            String output;
+            try {
+                output = future.get(stageTimeout.toMillis(), TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                future.cancel(true);
+                s.audit("STAGE_TIMEOUT stage=" + stage + " timeoutMs=" + stageTimeout.toMillis());
+                throw new IllegalStateException("Stage timed out after " + stageTimeout.toSeconds() + " seconds: " + stage, e);
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof RuntimeException runtimeException) throw runtimeException;
+                throw new IllegalStateException("Stage execution failed: " + stage, cause);
+            } catch (InterruptedException e) {
+                future.cancel(true);
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted while waiting for stage: " + stage, e);
+            }
             st.setOutput(output); st.setStatus(StageStatus.SUCCEEDED); st.setFinishedAt(Instant.now());
             s.getContext().put(stage.name() + ".output", output);
             s.audit("STAGE_SUCCEEDED " + stage);
@@ -168,7 +176,7 @@ public class AgenticOrchestrator {
         }
     }
 
-    private String generate(Stage stage, WorkflowState s) {
+    String generate(Stage stage, WorkflowState s) {
         String req = (String) s.getContext().getOrDefault("replannedRequirement", s.getRequirement());
         return switch (stage) {
             case REQUIREMENTS -> "Normalized requirement\n- Intent: " + req + "\n- Acceptance: API, analytics, reliability, governance\n- Ambiguities: retention, auth, rate limits\n- Decision: safe defaults documented";

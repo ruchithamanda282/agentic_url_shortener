@@ -25,6 +25,7 @@ This repository contains two related capabilities:
    - Synchronize at the release gate.
    - Require human approval for high-impact stages.
    - Enforce bounded retries.
+   - Apply a 30-second timeout to each stage and audit timed-out stages.
    - Record rollback and safe-stop events.
    - Support dynamic re-planning when an upstream requirement changes.
    - Preserve audit/decision lineage and reliability metrics.
@@ -229,6 +230,8 @@ curl.exe -X POST http://localhost:8080/api/urls `
   -H "Content-Type: application/json" `
   -d '{"url":"https://www.example.com/products/very/long/path","createdBy":"demo"}'
 ```
+
+URL creation is limited to 10 requests per client IP per minute. Excess requests receive HTTP `429` and a `Retry-After` header.
 
 Example response:
 
@@ -590,6 +593,7 @@ Stage starts
 ```
 
 The prototype intentionally fails closed: if orchestration cannot establish a safe state, it stops rather than continuing autonomously.
+Each stage has a 30-second execution timeout. A timed-out stage is cancelled, recorded in the audit trail, and handled by the same bounded retry policy as other stage failures.
 
 ---
 
@@ -675,7 +679,7 @@ Once running:
 
 - Demo UI: `http://localhost:8080/`
 - H2 console: `http://localhost:8080/h2-console`
-- Health: `http://localhost:8080/actuator/health` (if actuator is added; not enabled in this minimal dependency set)
+- Health: `http://localhost:8080/actuator/health`
 
 H2 console JDBC URL:
 
@@ -768,4 +772,3 @@ openapi.yaml
 ```
 
 You can import it into Swagger UI, Postman or another API tool.
-
